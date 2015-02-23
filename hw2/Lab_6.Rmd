@@ -1,0 +1,195 @@
+---
+title: "Lab_6"
+output: html_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+
+
+Load in the data
+```{r}
+videodata <- read.table('videodata.txt',head=T)
+videodata
+```
+Distributed equally?
+```{r}
+qqplot(subset(videodata$freq,videodata$freq < 40)[videodata$math==1],
+       subset(videodata$freq,videodata$freq < 40)[videodata$math==0])
+```
+
+
+
+The R package boot allows a user to easily generate bootstrap samples of virtually any statistic that they can calculate in R.  From these samples, you can generate estimates of bias, bootstrap confidence intervals, or plots of your bootstrap replicates. 
+
+***
+### Part I: 'boot' package
+
+Download the package and load it in your workspace
+```{r}
+#install.packages('boot')
+library(boot)
+```
+
+The R package boot repeatedly calls your estimation function, and each time, the bootstrap sample is supplied using an integer vector of indexes.
+
+So you should first define your estimation function.
+
+e.g. the sample mean and median function:
+```{r}
+samplemean <- function(x, d) {
+  return(mean(x[d]))
+}
+
+samplemedian <- function(x, d) {
+  return(median(x[d]))
+}
+```
+
+look at our data:
+```{r}
+names(videodata)
+
+B = boot(videodata$time, samplemean, R=1000)
+B
+```
+The object 'B' that is returned by boot() is interesting and useful. Say ?boot to learn about it. For example, after making 'B' as shown above, you can say:
+```{r}
+print(sd(B$t[,1]))
+```
+Here, I'm using the fact that B$t is a matrix containing 1000 rows which holds all the results of estimation. The 1st column in it is the only thing being estimated by samplemean(), which is the sample mean.
+
+The default plot() operator does nice things when fed with this object.
+```{r}
+plot(B)
+```
+It automatically gives you the histogram of the bootstrap sample mean, and the qqplot. In this case, it can be concluded that the mean of the time students play video game does indeed follow normal distribution.
+
+You can also look at the sample median.
+```{r}
+B_median = boot(videodata$time, samplemedian, R=1000)
+plot(B_median)
+```
+Conclusion?
+
+Confidence interval.
+```{r}
+CI = boot.ci(B, type='basic')
+CI
+cat("95% CI from ", CI$basic[1,4], " to ", CI$basic[1,5], "\n")
+```
+
+Trimmed mean:
+The R function mean() is general, and will also do a trimmed mean. If you say mean(x, 0.1), then it will remove the most extreme 10% of the data at both the top and the bottom, and report the mean of the middle 80%. 
+```{r}
+trimedmean <- function(x, d, trim=0) {
+  return(mean(x[d], trim/length(x)))
+}
+```
+Note that trim is default to be 0. For example, if I want to trim off the most extreme 1 observatons at the top and the bottom, I can just say:
+```{r}
+B_trim = boot(videodata$time, trimedmean, R=1000, trim=1)
+plot(B_trim)
+```
+
+Bootstrap regression coefficients
+
+A statistic that can be of interest is the slope of the linear regression of a student's # of hours worked the week prior to the survey explained by # of hours played in that week.
+```{r}
+x <- videodata$time
+del <- (videodata$time == 99)
+y <- videodata$work
+x <- videodata$time[-del]
+y <- videodata$work[-del]
+timework.lm <- lm(y ~ x)
+coef(timework.lm)
+coef(timework.lm)[2]
+
+fitted <- predict(timework.lm, interval = "confidence")
+plot(x,y)
+lines(x, fitted[, "fit"])
+summary(timework.lm)
+# now the confidence bands
+lines(x, fitted[, "lwr"], lty = "dotted")
+lines(x, fitted[, "upr"], lty = "dotted")
+```
+
+Bootstrapping the slope.(method 1)
+```{r}
+slope.boot <- numeric(1000)
+for (i in 1:1000){
+  ind <- sample(length(videodata$time),length(videodata$time), replace=TRUE)
+  slope.boot[i] <- coef(lm(y[ind]~x[ind]))[2]
+}
+plot(density(slope.boot), lwd=3, col="steelblue")
+abline(v=coef(lm(y~x))[2], lwd=3, col="gold")
+```
+
+Actually our linear model here is terrible, but the density of the slope is still almost normal. (think about Central Limit Theorem)
+
+Using the boot package for it. (method 2: "boot" package for dataframe)
+```{r}
+slopemean <- function(D,ind){
+  return(coef(lm(D[,'y'][ind]~D[,'x'][ind]))[2])
+}
+
+D = data.frame(x,y)
+B_slope = boot(D, slopemean, R=1000)
+plot(B_slope)
+```
+Note that the first input of "boot" must either be a vector or a data.frame.
+
+***
+### Part II: more about sample (review)
+sample 22 number from 1 to 100 with replacement.
+```{r}
+s100.22 <- sample(100,22,replace=TRUE)
+# or
+s100.22 <- sample(1:100,22,replace=TRUE)
+```
+sample with distribution. (10 from 1 to 5 with replacement)
+```{r}
+sample(5, 10, prob = c(0.3, 0.4, 0.1, 0.1, 0.1), replace = T)
+```
+
+random permutation:
+```{r}
+x <- 1:7
+sample(x)
+```
+bootstrap resampling (when length(x) > 1):
+```{r}
+sample(x,replace=T)
+```
+
+Draw a sample of size 100 from a normal distribution with mean 2 and standard deviation 5.
+```{r}
+norm <- rnorm(100, 2, 5)
+norm[1:10]
+```
+Point probability for a specific value of a standard normal dist.
+```{r}
+dnorm(-1.96)
+```
+Plot the density function of a normal distribution N(2, .25) from 0 to 4.
+```{r}
+x <- seq(0, 4, 0.1)
+plot(x, dnorm(x, 2, 0.5), type = "l")
+```
+Note that you need to plug in the sd 0.5 not variance 0.25.
+
+Calculating the quantiles for the standard normal.
+```{r}
+qnorm(0.975)
+```
+
+qqnorm
+```{r}
+x <- rnorm(100,2,1)
+qqnorm(x)
+qqline(x,col=2)
+```
+qqline() function adds a line to your normal QQ plot. This line makes it a lot easier to evaluate whether you see a clear deviation from normality. The closer all points lie to the line, the closer the distribution of your sample comes to the normal distribution.
